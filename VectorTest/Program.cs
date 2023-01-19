@@ -49,8 +49,9 @@ namespace IngameScript
             //Draw.DrawPoint(LocalPosToWorldPos(intersection, offsetMatrix), Color.Red, 0.05f, 30);
             // Forward is looking at dir
             var lcd = GridTerminalSystem.GetBlockWithName("TestLCD") as IMyTextPanel;
-            TextPanelRenderingContext context = new TextPanelRenderingContext(ref lcd, Vector3D.Backward * 5, Draw);
-            var res = context.ProjectPoint(lcd.GetPosition() + Vector3D.TransformNormal(Vector3D.Forward * 3 + Vector3D.Right, lcd.WorldMatrix));
+            Draw.DrawLine(LocalPosToWorldPos(Vector3D.Backward * 5, lcd.WorldMatrix), LocalPosToWorldPos(Vector3D.Forward * 3 + Vector3D.Left + Vector3D.Up, lcd.WorldMatrix), Color.White, 0.01f, 10);
+            TextPanelRenderingContext context = new TextPanelRenderingContext(ref lcd, Vector3D.Backward * 5, Draw, this);
+            var res = context.ProjectPoint(lcd.GetPosition() + Vector3D.TransformNormal(Vector3D.Forward * 3 + Vector3D.Left + Vector3D.Up, lcd.WorldMatrix));
             lcd.ContentType = ContentType.SCRIPT;
 
             var df = lcd.DrawFrame();
@@ -61,7 +62,7 @@ namespace IngameScript
                 Color = Color.Red,
                 Position = res,
                 Size = new Vector2(3, 3)
-            }) ;
+            });
             df.Dispose();
             Echo(res.ToString());
         }
@@ -78,34 +79,42 @@ namespace IngameScript
             public Vector2 PixelMultiplier { get; private set; }
 
             private readonly Vector3D Normal = Vector3D.Backward;
-            public readonly double TextPanelThickness = 0.2f;
-
+            public static readonly double TextPanelThickness = 0.03f;
+            public static readonly float TextPanelTextureMargin = 0.335f;
+            private static readonly Vector3D ProjectionOffset = Vector3D.Backward * ((2.5d / 2d) - TextPanelThickness);
+            static Program pr = null;
             /// <summary>
             /// Initializes the renderer to a working state
             /// </summary>
             /// <param name="lcd">The lcd you want to project to</param>
             /// <param name="viewPointDirection">Direction to view from local to lcd's matrix</param>
-            public TextPanelRenderingContext(ref IMyTextPanel lcd, Vector3D viewPointDirection, DebugAPI debugAPI = null)
+            public TextPanelRenderingContext(ref IMyTextPanel lcd, Vector3D viewPointDirection, DebugAPI debugAPI = null, Program p = null)
             {
                 Draw = debugAPI;
                 TextPanel = lcd;
-                ViewPoint = viewPointDirection + Vector3D.Backward * ((2.5d / 2d) - TextPanelThickness);
+                ViewPoint = viewPointDirection + ProjectionOffset;
+                pr = p;
 
                 var screenSize = GetTextPanelSizeFromGridView(TextPanel);
-                PixelMultiplier = TextPanel.TextureSize / screenSize;
+                PixelMultiplier = TextPanel.TextureSize / ((Vector2)screenSize * (2.5f - TextPanelTextureMargin));
+                p.Echo(TextPanel.TextureSize.ToString());
+                p.Echo(((Vector2)screenSize * (2.5f - TextPanelTextureMargin)).ToString());
+                p.Echo(screenSize.ToString());
+                p.Echo(PixelMultiplier.ToString());
             }
 
             private static Vector2I GetTextPanelSizeFromGridView(IMyTextPanel textPanel)
             {
+                pr.Echo(textPanel.Orientation.Forward.ToString());
                 Vector3I lcdSize = textPanel.Max - textPanel.Min;
                 Vector2I screenSize = new Vector2I();
                 switch (textPanel.Orientation.Forward)
                 {
                     case Base6Directions.Direction.Forward:
-                        screenSize = new Vector2I(lcdSize.X, lcdSize.Y);
+                        screenSize = new Vector2I(lcdSize.Y, lcdSize.X);
                         break;
                     case Base6Directions.Direction.Backward:
-                        screenSize = new Vector2I(lcdSize.X, lcdSize.Y);
+                        screenSize = new Vector2I(lcdSize.Y, lcdSize.X);
                         break;
                     case Base6Directions.Direction.Left:
                         screenSize = new Vector2I(lcdSize.Z, lcdSize.Y);
@@ -133,34 +142,34 @@ namespace IngameScript
             /// <returns>Screen coordinate in pixels or null if projection is not on lcd</returns>
             public Vector2? ProjectPoint(Vector3D worldPoint)
             {
-                // Local view to world point
-                Vector3D worldViewPos = Vector3D.Transform(ViewPoint, TextPanel.WorldMatrix);
-                // direction from the viewPoint to the worldPoint
-                Vector3D worldRayDirection = worldPoint - worldViewPos;
-                Draw.DrawLine(worldViewPos, worldPoint, Color.White, 0.01f, 10, true);
+                Draw.DrawLine(worldPoint, worldPoint + LocalDirToWorldDir(ProjectionOffset, TextPanel.WorldMatrix), Color.Green, 0.02f, 10);
+
+                Vector3D referenceWorldPosition = TextPanel.WorldMatrix.Translation; 
+                // Convert worldPosition into a world direction
+                Vector3D worldDirection = worldPoint - referenceWorldPosition;
+                // Convert worldDirection into a local direction
+                Vector3D localPointToProject = Vector3D.TransformNormal(worldDirection, MatrixD.Transpose(TextPanel.WorldMatrix)) + ProjectionOffset; 
                 // ray direction in local space
-                Vector3D localRayDirection = Vector3D.Transform(worldRayDirection, MatrixD.Transpose(TextPanel.WorldMatrix));
+                Vector3D localRayDirection = localPointToProject - ViewPoint;
                 //// we dont normalize to keep it at max performance
                 //localRayDirection.Normalize();
-
+                Draw.DrawLine(LocalPosToWorldPos(ViewPoint, TextPanel.WorldMatrix), LocalPosToWorldPos(ViewPoint, TextPanel.WorldMatrix) + LocalDirToWorldDir(localRayDirection, TextPanel.WorldMatrix), Color.LightCoral, 0.01f, 10);
                 // project the plane onto the plane
+                
                 Vector2? projectedLocalPoint = PlaneIntersection(ViewPoint, localRayDirection);
                 if (projectedLocalPoint != null)
                 {
                     var projectedLocalPointNonNullable = (Vector2)projectedLocalPoint;
-                    Draw.DrawLine(LocalPosToWorldPos(ViewPoint, TextPanel.WorldMatrix), TextPanel.GetPosition(), Color.Green, 0.02f, 10, true);
-                    // DEBUG
-                    Draw.DrawLine(worldViewPos, LocalPosToWorldPos(new Vector3D((double)projectedLocalPointNonNullable.X, (double)projectedLocalPointNonNullable.Y, -2f / 2d), TextPanel.WorldMatrix), Color.Red, 0.01f, 10, true);
-                    Draw.DrawPoint(LocalPosToWorldPos(new Vector3D((double)projectedLocalPointNonNullable.X, (double)projectedLocalPointNonNullable.Y, -2f / 2d), TextPanel.WorldMatrix), Color.Red, 0.1f, 10);
+                    Draw.DrawPoint(LocalPosToWorldPos(new Vector3D(projectedLocalPointNonNullable.X, projectedLocalPointNonNullable.Y, -2.5 / 2d), TextPanel.WorldMatrix), Color.Red, 0.05f, 10);
                     // convert it to pixels
-                    Vector2 projectedLocalPointPixels = projectedLocalPointNonNullable * PixelMultiplier;
+                    Vector2 projectedLocalPointPixels = projectedLocalPointNonNullable * PixelMultiplier * new Vector2(1, -1);
                     projectedLocalPointPixels += TextPanel.TextureSize / 2f;
-                    return projectedLocalPointPixels;
+                    if (projectedLocalPointPixels.X >= 0 && projectedLocalPointPixels.Y >= 0 && projectedLocalPointPixels.X < TextPanel.SurfaceSize.X && projectedLocalPointPixels.Y < TextPanel.SurfaceSize.Y)
+                    {
+                        return projectedLocalPointPixels;
+                    }
                 }
-                else
-                {
-                    return null;
-                }
+                return null;
             }
 
             /// <summary>
@@ -175,18 +184,9 @@ namespace IngameScript
                 {
                     return null;
                 }
-                var t = -DotNormal(origin) / DotNormal(dir);
+                var t = -Vector3D.Dot(origin, Normal) / Vector3D.Dot(dir, Normal);
                 Vector3D res = origin + t * dir;
                 return new Vector2((float)res.X, (float)res.Y);
-            }
-
-            /// <summary>
-            /// Calculates the dot-product of a specified Vector3D and the normal vector (static)
-            /// </summary>
-            /// <param name="value">The Vector3D to calculate the dot product of</param>
-            private double DotNormal(Vector3D value)
-            {
-                return (double)(Normal.X * value.X + Normal.Y * value.Y + Normal.Z * value.Z);
             }
 
             Vector3D LocalDirToWorldDir(Vector3D dir, MatrixD matrix)
@@ -213,7 +213,7 @@ namespace IngameScript
 
         public void Save()
         {
-        
+
         }
 
         public void Main(string argument, UpdateType updateSource)
