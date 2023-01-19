@@ -78,6 +78,7 @@ namespace IngameScript
             public Vector2 PixelMultiplier { get; private set; }
 
             private readonly Vector3D Normal = Vector3D.Backward;
+            public readonly double TextPanelThickness = 0.2f;
 
             /// <summary>
             /// Initializes the renderer to a working state
@@ -88,10 +89,17 @@ namespace IngameScript
             {
                 Draw = debugAPI;
                 TextPanel = lcd;
-                ViewPoint = viewPointDirection;
-                Vector3I lcdSize = TextPanel.Max - TextPanel.Min;
+                ViewPoint = viewPointDirection + Vector3D.Backward * ((2.5d / 2d) - TextPanelThickness);
+
+                var screenSize = GetTextPanelSizeFromGridView(TextPanel);
+                PixelMultiplier = TextPanel.TextureSize / screenSize;
+            }
+
+            private static Vector2I GetTextPanelSizeFromGridView(IMyTextPanel textPanel)
+            {
+                Vector3I lcdSize = textPanel.Max - textPanel.Min;
                 Vector2I screenSize = new Vector2I();
-                switch (TextPanel.Orientation.Forward)
+                switch (textPanel.Orientation.Forward)
                 {
                     case Base6Directions.Direction.Forward:
                         screenSize = new Vector2I(lcdSize.X, lcdSize.Y);
@@ -115,7 +123,7 @@ namespace IngameScript
                         throw new ArgumentException("Unknown orientation");
                 }
                 screenSize += new Vector2I(1, 1);
-                PixelMultiplier = TextPanel.TextureSize / screenSize;
+                return screenSize;
             }
 
             /// <summary>
@@ -136,25 +144,37 @@ namespace IngameScript
                 //localRayDirection.Normalize();
 
                 // project the plane onto the plane
-                Vector2 projectedLocalPoint = PlaneIntersection(ViewPoint, localRayDirection);
-                Draw.DrawLine(LocalPosToWorldPos(ViewPoint, TextPanel.WorldMatrix), TextPanel.GetPosition(), Color.Green, 0.02f, 10, true);
-                // DEBUG
-                Draw.DrawLine(worldViewPos, LocalPosToWorldPos(new Vector3D((double)projectedLocalPoint.X, (double)projectedLocalPoint.Y, -2f / 2d), TextPanel.WorldMatrix), Color.Red, 0.01f, 10, true);
-                Draw.DrawPoint(LocalPosToWorldPos(new Vector3D((double)projectedLocalPoint.X, (double)projectedLocalPoint.Y, -2f / 2d), TextPanel.WorldMatrix), Color.Red, 0.1f, 10);
-                // convert it to pixels
-                Vector2 projectedLocalPointPixels = projectedLocalPoint * PixelMultiplier;
-                projectedLocalPointPixels += TextPanel.TextureSize / 2f;
-                return projectedLocalPointPixels;
+                Vector2? projectedLocalPoint = PlaneIntersection(ViewPoint, localRayDirection);
+                if (projectedLocalPoint != null)
+                {
+                    var projectedLocalPointNonNullable = (Vector2)projectedLocalPoint;
+                    Draw.DrawLine(LocalPosToWorldPos(ViewPoint, TextPanel.WorldMatrix), TextPanel.GetPosition(), Color.Green, 0.02f, 10, true);
+                    // DEBUG
+                    Draw.DrawLine(worldViewPos, LocalPosToWorldPos(new Vector3D((double)projectedLocalPointNonNullable.X, (double)projectedLocalPointNonNullable.Y, -2f / 2d), TextPanel.WorldMatrix), Color.Red, 0.01f, 10, true);
+                    Draw.DrawPoint(LocalPosToWorldPos(new Vector3D((double)projectedLocalPointNonNullable.X, (double)projectedLocalPointNonNullable.Y, -2f / 2d), TextPanel.WorldMatrix), Color.Red, 0.1f, 10);
+                    // convert it to pixels
+                    Vector2 projectedLocalPointPixels = projectedLocalPointNonNullable * PixelMultiplier;
+                    projectedLocalPointPixels += TextPanel.TextureSize / 2f;
+                    return projectedLocalPointPixels;
+                }
+                else
+                {
+                    return null;
+                }
             }
 
             /// <summary>
-            /// Calculates the intersection point from the given ray and a plane with origin (0,0,0) and the normal (static)
+            /// Calculates the intersection point from the given line and a plane with origin (0,0,0) and the normal (static)
             /// </summary>
-            /// <param name="origin">Ray origin</param>
-            /// <param name="dir">Ray direction</param>
+            /// <param name="origin">Line origin</param>
+            /// <param name="dir">Line direction</param>
             /// <returns>The projected point</returns>
-            private Vector2 PlaneIntersection(Vector3D origin, Vector3D dir)
+            private Vector2? PlaneIntersection(Vector3D origin, Vector3D dir)
             {
+                if (dir.Z >= 0)
+                {
+                    return null;
+                }
                 var t = -DotNormal(origin) / DotNormal(dir);
                 Vector3D res = origin + t * dir;
                 return new Vector2((float)res.X, (float)res.Y);
